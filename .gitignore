@@ -1,0 +1,9 @@
+# Entorno virtual
+venv/
+
+# Carpeta de datos (para no subir archivos pesados)
+data/
+
+# Archivos de caché de Python
+__pycache__/
+*.pyc
