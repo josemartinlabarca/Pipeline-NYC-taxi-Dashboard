@@ -1,46 +1,71 @@
 # 02_etl.py
-import pandas as pd
+# Limpia los viajes descargados, crea variables de tiempo y guarda un Parquet liviano para el dashboard.
 import glob
 import os
+import sys
 
-print("--- INICIANDO PROCESO ETL ---")
+import pandas as pd
 
-# 1. Buscar todos los archivos parquet descargados en la carpeta data/
-files = glob.glob("data/taxi_data_*.parquet")
+ENTRADA = "data/taxi_data_*.parquet"
+SALIDA = "data/taxi_final_dataset.parquet"
 
-if not files:
-    print("¡Error! No se encontraron archivos parquet en la carpeta data/. Ejecuta primero el script de ingesta.")
-    exit()
+# Solo se leen las columnas que se usan: ahorra memoria y tiempo de lectura
+COLUMNAS = ["tpep_pickup_datetime", "trip_distance", "total_amount", "passenger_count"]
 
-print(f"Archivos encontrados para procesar: {files}")
+# Límites de calidad: fuera de estos rangos el registro se considera un error de captura
+DISTANCIA_MAX_MILLAS = 100
+MONTO_MAX_USD = 1000
 
-# 2. Cargar y concatenar todos los archivos en un solo DataFrame de Pandas
-df_list = [pd.read_parquet(f) for f in files]
-df = pd.concat(df_list, ignore_index=True)
-print(f"Total de filas crudas cargadas: {len(df):,}")
+ORDEN_DIAS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
-# 3. Limpieza de datos (Filtros de calidad)
-# Eliminamos viajes con distancias en cero/negativas o tarifas totales menores o iguales a cero
-df = df[(df['trip_distance'] > 0) & (df['total_amount'] > 0)]
-print(f"Filas después de limpiar anomalías: {len(df):,}")
 
-# 4. Ingeniería de características (Feature Engineering)
-# Convertir la fecha de inicio del viaje a tipo datetime de Pandas
-df['tpep_pickup_datetime'] = pd.to_datetime(df['tpep_pickup_datetime'])
+def periodo_del_archivo(ruta: str, year: int) -> pd.Period:
+    """data/taxi_data_01.parquet -> Period('2025-01')"""
+    mes = int(os.path.basename(ruta).split("_")[-1].split(".")[0])
+    return pd.Period(year=year, month=mes, freq="M")
 
-# Extraer la hora del día (0 a 23) y el nombre del día de la semana (Monday, Tuesday, etc.)
-df['hour'] = df['tpep_pickup_datetime'].dt.hour
-df['day_of_week'] = df['tpep_pickup_datetime'].dt.day_name()
 
-# 5. Seleccionar únicamente las columnas clave para optimizar rendimiento y memoria
-cols_to_keep = ['tpep_pickup_datetime', 'trip_distance', 'total_amount', 'hour', 'day_of_week', 'passenger_count']
-df_final = df[cols_to_keep]
+def main(year: int = 2025) -> int:
+    print("--- INICIANDO PROCESO ETL ---")
+    archivos = sorted(glob.glob(ENTRADA))
+    if not archivos:
+        print("No hay archivos en data/. Ejecuta primero: python 01_ingest.py")
+        return 1
 
-# 6. Guardar el dataset limpio y optimizado en formato Parquet
-os.makedirs("data", exist_ok=True)
-output_file = "data/taxi_final_dataset.parquet"
-df_final.to_parquet(output_file, index=False)
+    partes = []
+    for ruta in archivos:
+        df_mes = pd.read_parquet(ruta, columns=COLUMNAS)
+        df_mes["tpep_pickup_datetime"] = pd.to_datetime(df_mes["tpep_pickup_datetime"])
+        # La TLC incluye algunos viajes con fechas fuera del mes publicado: se descartan
+        periodo = periodo_del_archivo(ruta, year)
+        df_mes = df_mes[df_mes["tpep_pickup_datetime"].dt.to_period("M") == periodo]
+        partes.append(df_mes)
+        print(f"{ruta}: {len(df_mes):,} viajes del período {periodo}")
 
-print(f"¡ETL completado con éxito!")
-print(f"Dataset optimizado guardado en: {output_file}")
-print("--- FIN DEL PROCESO ETL ---")
+    df = pd.concat(partes, ignore_index=True)
+    filas_crudas = len(df)
+    print(f"Total de filas cargadas: {filas_crudas:,}")
+
+    # Limpieza: distancias y montos imposibles
+    df = df[df["trip_distance"].between(0, DISTANCIA_MAX_MILLAS, inclusive="right")]
+    df = df[df["total_amount"].between(0, MONTO_MAX_USD, inclusive="right")]
+    descartadas = filas_crudas - len(df)
+    print(f"Filas descartadas por anomalías: {descartadas:,} ({descartadas / filas_crudas:.1%})")
+
+    # Ingeniería de características
+    df["hour"] = df["tpep_pickup_datetime"].dt.hour.astype("int8")
+    df["day_of_week"] = pd.Categorical(
+        df["tpep_pickup_datetime"].dt.day_name(), categories=ORDEN_DIAS, ordered=True
+    )
+
+    df_final = df[["tpep_pickup_datetime", "trip_distance", "total_amount", "hour", "day_of_week", "passenger_count"]]
+    os.makedirs(os.path.dirname(SALIDA), exist_ok=True)
+    df_final.to_parquet(SALIDA, index=False)
+
+    print(f"Dataset limpio: {len(df_final):,} viajes -> {SALIDA}")
+    print("--- FIN DEL PROCESO ETL ---")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

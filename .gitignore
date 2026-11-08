@@ -7,3 +7,6 @@ data/
 # Archivos de caché de Python
 __pycache__/
 *.pyc
+
+# Descargas parciales
+*.part

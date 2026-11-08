@@ -1,10 +1,21 @@
 # app.py
+import os
+
 from dash import Dash, html, dcc, callback, Output, Input
 import plotly.express as px
 import pandas as pd
 
+ORDEN_DIAS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+NOMBRES_DIAS = {"Monday": "Lunes", "Tuesday": "Martes", "Wednesday": "Miércoles", "Thursday": "Jueves",
+                "Friday": "Viernes", "Saturday": "Sábado", "Sunday": "Domingo"}
+DISTANCIA_HISTOGRAMA = 30  # millas: el histograma muestra hasta aquí para que la forma sea legible
+
 # Cargar el dataset optimizado generado en la fase ETL
-df = pd.read_parquet("data/taxi_final_dataset.parquet")
+RUTA_DATOS = "data/taxi_final_dataset.parquet"
+if not os.path.exists(RUTA_DATOS):
+    raise SystemExit("No existe data/taxi_final_dataset.parquet. Ejecuta antes: python 01_ingest.py && python 02_etl.py")
+df = pd.read_parquet(RUTA_DATOS)
+df["day_of_week"] = df["day_of_week"].astype(str)
 
 # Inicializar la aplicación de Dash
 app = Dash(__name__)
@@ -13,28 +24,28 @@ app = Dash(__name__)
 app.layout = html.Div(style={'backgroundColor': '#f4f6f9', 'padding': '30px', 'fontFamily': 'Arial, sans-serif'}, children=[
     
     html.H1("Dashboard Analítico: Taxis de Nueva York 🚖", style={'textAlign': 'center', 'color': '#2c3e50'}),
-    html.P("Pipeline completo de Big Data con Python, ETL y Plotly Dash en Ubuntu", style={'textAlign': 'center', 'color': '#7f8c8d'}),
+    html.P("Viajes de taxis amarillos de la NYC TLC: ingesta, ETL a Parquet y visualización con Plotly Dash", style={'textAlign': 'center', 'color': '#7f8c8d'}),
     
     # Filtro interactivo (Dropdown de días de la semana)
     html.Div([
         html.Label("Selecciona el Día de la Semana:", style={'fontWeight': 'bold', 'display': 'block', 'marginBottom': '5px'}),
         dcc.Dropdown(
             id='dropdown-day',
-            options=[{'label': day, 'value': day} for day in sorted(df['day_of_week'].unique())],
+            options=[{'label': NOMBRES_DIAS[d], 'value': d} for d in ORDEN_DIAS if d in set(df['day_of_week'])],
             value='Monday',
             clearable=False,
             style={'width': '100%'}
         )
-    ], style={'width': '40%', 'margin': '0 auto 30px auto', 'background': 'white', 'padding': '15px', 'borderRadius': '8px', 'boxShadow': '0px 2px 5px rgba(0,0,0,0.05)'}),
+    ], style={'maxWidth': '420px', 'margin': '0 auto 30px auto', 'background': 'white', 'padding': '15px', 'borderRadius': '8px', 'boxShadow': '0px 2px 5px rgba(0,0,0,0.05)'}),
     
     # Contenedor de KPIs (Tarjetas de resumen)
-    html.Div(id='kpi-output', style={'display': 'flex', 'justifyContent': 'space-around', 'marginBottom': '30px'}),
+    html.Div(id='kpi-output', style={'display': 'flex', 'flexWrap': 'wrap', 'gap': '16px', 'justifyContent': 'center', 'marginBottom': '30px'}),
     
     # Contenedor de Gráficos Interactivos
     html.Div([
-        html.Div([dcc.Graph(id='graph-hours')], style={'width': '48%', 'display': 'inline-block', 'background': 'white', 'padding': '10px', 'borderRadius': '8px', 'boxShadow': '0px 2px 5px rgba(0,0,0,0.05)'}),
-        html.Div([dcc.Graph(id='graph-distance')], style={'width': '48%', 'display': 'inline-block', 'background': 'white', 'padding': '10px', 'borderRadius': '8px', 'boxShadow': '0px 2px 5px rgba(0,0,0,0.05)', 'float': 'right'})
-    ])
+        html.Div([dcc.Graph(id='graph-hours')], style={'flex': '1 1 420px', 'minWidth': '0', 'background': 'white', 'padding': '10px', 'borderRadius': '8px', 'boxShadow': '0px 2px 5px rgba(0,0,0,0.05)'}),
+        html.Div([dcc.Graph(id='graph-distance')], style={'flex': '1 1 420px', 'minWidth': '0', 'background': 'white', 'padding': '10px', 'borderRadius': '8px', 'boxShadow': '0px 2px 5px rgba(0,0,0,0.05)'})
+    ], style={'display': 'flex', 'flexWrap': 'wrap', 'gap': '16px'})
 ])
 
 # Interactividad mediante Callbacks de Dash
@@ -60,7 +71,8 @@ def update_dashboard(selected_day):
         'borderRadius': '8px', 
         'boxShadow': '0px 2px 5px rgba(0,0,0,0.05)', 
         'textAlign': 'center', 
-        'width': '28%'
+        'flex': '1 1 200px',
+        'maxWidth': '320px'
     }
     
     kpis = [
@@ -71,17 +83,21 @@ def update_dashboard(selected_day):
     
     # Gráfico 1: Demanda de viajes por hora
     df_hours = dff.groupby('hour').size().reset_index(name='count')
-    fig_hours = px.bar(df_hours, x='hour', y='count', title=f"Demanda de Viajes por Hora ({selected_day})",
+    dia = NOMBRES_DIAS[selected_day]
+    fig_hours = px.bar(df_hours, x='hour', y='count', title=f"Demanda de Viajes por Hora ({dia})",
                        labels={'hour': 'Hora del Día', 'count': 'Cantidad de Viajes'})
     fig_hours.update_layout(margin=dict(t=40, b=20, l=20, r=20))
     
     # Gráfico 2: Histograma de distribución de distancias
-    fig_distance = px.histogram(dff, x='trip_distance', nbins=30, title=f"Distribución de Distancias de Viaje ({selected_day})",
+    fig_distance = px.histogram(dff[dff['trip_distance'] <= DISTANCIA_HISTOGRAMA], x='trip_distance', nbins=30,
+                                title=f"Distancias de Viaje hasta {DISTANCIA_HISTOGRAMA} mi ({dia})",
                                 labels={'trip_distance': 'Distancia (Millas)'})
     fig_distance.update_layout(margin=dict(t=40, b=20, l=20, r=20))
     
     return kpis, fig_hours, fig_distance
 
 # Ejecutar el servidor web local
+# Ejecutar el servidor web local.
+# El modo debug solo se activa con DASH_DEBUG=1: su consola permite ejecutar código, así que nunca debe quedar expuesto en la red.
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=8050)
+    app.run(debug=os.environ.get("DASH_DEBUG") == "1", host='127.0.0.1', port=8050)

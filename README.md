@@ -1,50 +1,55 @@
-# 🚖 NYC Taxi Data Pipeline & Analytics Dashboard
+# NYC Taxi · Pipeline de datos y dashboard
 
-<p align="center">
-  <b>Un proyecto completo de Big Data, ingeniería de datos y visualización interactiva de extremo a extremo utilizando Python, Pandas, Apache Parquet y Plotly Dash.</b>
-</p>
+Pipeline de extremo a extremo con los viajes de taxis amarillos de Nueva York: descarga los datos oficiales de la **NYC Taxi & Limousine Commission (TLC)**, los limpia y transforma a **Apache Parquet**, y los muestra en un dashboard interactivo con **Plotly Dash**.
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Python-3.12%2B-blue?style=for-the-badge&logo=python&logoColor=white" />
-  <img src="https://img.shields.io/badge/Pandas-Data%20Engineering-orange?style=for-the-badge&logo=pandas&logoColor=white" />
-  <img src="https://img.shields.io/badge/Plotly%20Dash-Interactive%20UI-green?style=for-the-badge&logo=plotly&logoColor=white" />
-  <img src="https://img.shields.io/badge/Ubuntu-Linux-yellow?style=for-the-badge&logo=ubuntu&logoColor=white" />
-</p>
+![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
+![pandas](https://img.shields.io/badge/pandas-150458?logo=pandas&logoColor=white)
+![Apache Parquet](https://img.shields.io/badge/Apache%20Parquet-50ABF1?logo=apacheparquet&logoColor=white)
+![Plotly Dash](https://img.shields.io/badge/Plotly%20Dash-3F4F75?logo=plotly&logoColor=white)
 
----
+## Qué resuelve
 
-## 📌 Sobre el Proyecto
-Este repositorio implementa un flujo de trabajo moderno (Pipeline) diseñado para procesar millones de registros de la **NYC Taxi and Limousine Commission (TLC)**. El objetivo es transformar datos masivos y crudos en un panel de control interactivo en tiempo real, optimizando el rendimiento mediante el uso de formatos de almacenamiento analítico avanzados (`.parquet`).
+Cada mes de la TLC trae millones de viajes con registros imposibles: distancias de cero o de miles de millas, montos negativos y fechas fuera del mes publicado. El pipeline los filtra, deja solo las columnas que se usan y guarda un Parquet compacto que el dashboard carga en segundos.
 
----
+## Arquitectura
 
-## ⚙️ Arquitectura del Pipeline
+```mermaid
+flowchart LR
+    A[NYC TLC<br/>Parquet mensual] -->|01_ingest.py| B[data/taxi_data_MM.parquet]
+    B -->|02_etl.py<br/>limpieza + variables| C[data/taxi_final_dataset.parquet]
+    C -->|app.py| D[Dashboard Dash<br/>localhost:8050]
+```
 
-El flujo de trabajo se divide en 3 etapas principales:
+| Etapa | Archivo | Qué hace |
+|---|---|---|
+| Ingesta | [`01_ingest.py`](01_ingest.py) | Descarga los meses configurados por partes, con timeout y sin dejar archivos a medio bajar. Si un mes ya está descargado, lo omite. |
+| ETL | [`02_etl.py`](02_etl.py) | Lee solo las columnas necesarias, descarta viajes fuera del mes, distancias fuera de (0, 100] millas y montos fuera de (0, 1.000] USD. Crea la hora y el día de la semana y guarda el resultado en Parquet. |
+| Dashboard | [`app.py`](app.py) | Filtro por día de la semana, KPIs (viajes, tarifa y distancia promedio), demanda por hora e histograma de distancias. |
 
-1. **Ingesta automatizada (`01_ingest.py`):** Descarga de manera programática los datasets oficiales mensuales directamente desde los servidores de la NYC TLC en formato binario optimizado.
-2. **Transformación ETL (`02_etl.py`):** 
-   * Limpieza de datos (filtrado de anomalías, distancias y montos negativos/ceros).
-   * Ingeniería de características (*Feature Engineering*: extracción de horas pico, días de la semana).
-   * Exportación en formato comprimido **Apache Parquet** para máxima velocidad de lectura.
-3. **Visualización Interactiva (`app.py`):** Interfaz web analítica desarrollada con **Plotly Dash**, que incluye tarjetas de resumen dinámicas (KPIs) y gráficos interactivos filtrables por día.
+## Cómo ejecutarlo
 
----
+Requisitos: Python 3.10 o superior y conexión a internet para la descarga.
 
-## 🛠️ Tecnologías y Librerías Utilizadas
-* **Python** (Lenguaje principal)
-* **Pandas & NumPy** (Manipulación y análisis de datos)
-* **PyArrow** (Gestión de archivos Parquet)
-* **Requests** (Automatización de solicitudes HTTP)
-* **Plotly & Dash** (Desarrollo del Dashboard web interactivo)
-
----
-
-## 🚀 Guía de Instalación y Ejecución Local
-
-Sigue estos pasos en tu terminal (compatible con Linux/Ubuntu y WSL):
-
-### 1. Clonar el repositorio
 ```bash
-git clone [https://github.com/josemartinlabarca/Pipeline-NYC-taxi-Dashboard.git](https://github.com/josemartinlabarca/Pipeline-NYC-taxi-Dashboard.git)
+git clone https://github.com/josemartinlabarca/Pipeline-NYC-taxi-Dashboard.git
 cd Pipeline-NYC-taxi-Dashboard
+python3 -m venv venv
+source venv/bin/activate          # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+
+python 01_ingest.py               # descarga enero y febrero de 2025
+python 02_etl.py                  # genera data/taxi_final_dataset.parquet
+python app.py                     # abre http://127.0.0.1:8050
+```
+
+Para descargar otros meses, cambia `YEAR` y `MONTHS` al inicio de `01_ingest.py`. Para activar la recarga automática mientras desarrollas, ejecuta `DASH_DEBUG=1 python app.py`. Úsalo solo en tu máquina, porque la consola de depuración permite ejecutar código.
+
+## Decisiones
+
+- **Parquet en vez de CSV:** formato columnar y comprimido; leer solo 4 columnas es mucho más rápido que cargar el archivo completo.
+- **Límites de limpieza explícitos:** los umbrales están como constantes al inicio de `02_etl.py`, para ajustarlos sin tocar la lógica.
+- **Fechas fuera del mes:** los archivos de la TLC traen algunos viajes con fechas de otros años; se descartan para que la demanda por hora sea correcta.
+
+## Fuente de datos
+
+[NYC TLC Trip Record Data](https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page). Los archivos descargados quedan en `data/`, que está en `.gitignore`.
