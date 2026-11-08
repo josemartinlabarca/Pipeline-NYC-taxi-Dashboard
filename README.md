@@ -28,7 +28,7 @@ flowchart LR
 
 ## Cómo ejecutarlo
 
-Requisitos: Python 3.10 o superior y unos 200 MB libres por mes descargado.
+Requisitos: Python 3.10 o superior y conexión a internet para la descarga.
 
 ```bash
 git clone https://github.com/josemartinlabarca/Pipeline-NYC-taxi-Dashboard.git
